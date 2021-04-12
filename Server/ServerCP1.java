@@ -49,7 +49,7 @@ public class ServerCP1 {
 
         } catch (Exception exception) {
             endConnection();
-            System.out.println("Problem with reading INT.");
+            System.out.println("Client disconnected...\n\n");
         }
     }
 

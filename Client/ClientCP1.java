@@ -57,7 +57,7 @@ public class ClientCP1 {
                 System.out.println("Bytes being written: " + numBytes);
 				toServer.writeInt(1);
 				toServer.writeInt(numBytes);
-				toServer.write(fromFileBuffer);
+				toServer.write(fromFileBuffer,0,numBytes);
 				toServer.flush();
 			}
 
