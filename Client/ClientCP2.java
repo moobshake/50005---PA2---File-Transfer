@@ -17,7 +17,7 @@ import java.util.Scanner;
 
 import javax.crypto.Cipher;
 
-public class ClientCP1 {
+public class ClientCP2 {
 
 	static final Scanner scanner = new Scanner(System.in); // scanning user input
 	static Socket clientSocket = null;
