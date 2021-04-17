@@ -254,7 +254,7 @@ public class ServerCP1 {
 			mainCipherEncrypt.init(Cipher.ENCRYPT_MODE, sessionKey);
 			mainCipherDecrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
 			mainCipherDecrypt.init(Cipher.DECRYPT_MODE, sessionKey);
-            System.out.println("Session key recieved. Decrypting nonce with session key...");
+            System.out.println("Session key decrypted. Decrypting nonce with session key...");
             
 			byte[] decryptedNONCE = mainCipherDecrypt.doFinal(encryptedNoncePublic);
 			int verifyNonce = ByteBuffer.wrap(decryptedNONCE).getInt();
