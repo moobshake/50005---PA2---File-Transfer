@@ -12,6 +12,7 @@ import java.security.PublicKey;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.Arrays;
 import java.util.Random;
 import java.util.Scanner;
 
@@ -27,6 +28,7 @@ public class ClientCP1 {
 	static BufferedInputStream bufferedFileInputStream = null;
 	static String signedCertificateString = "";
 	static PublicKey publicKey;
+	static Cipher mainCipher;
 
 	public static void main(String[] args) {
 
@@ -59,17 +61,38 @@ public class ClientCP1 {
 			fileInputStream = new FileInputStream(fileName);
 			bufferedFileInputStream = new BufferedInputStream(fileInputStream);
 
+			int packetCount = 0;
+
+			int totalBytes = 0;
+			long startTime = System.currentTimeMillis();
+
 			int numBytes = 0;
-			byte[] fromFileBuffer = new byte[117];
+			byte[] fromFileBuffer = new byte[245];
 
 			// Send the file
 			for (boolean fileEnded = false; !fileEnded;) {
 				numBytes = bufferedFileInputStream.read(fromFileBuffer);
-				fileEnded = numBytes < 117;
-				System.out.println("Bytes being written: " + numBytes);
+				fileEnded = numBytes < 245;
+				System.out.println("\nBytes being written BEFORE encryption: " + numBytes);
+				totalBytes += numBytes;
+
+				// if last packet means there will be less than 245 bytes thus need to
+				// limit the number of bytes.
+				byte[] encryptedData;
+				if (fileEnded) {
+					byte[] lastPacket = Arrays.copyOf(fromFileBuffer, numBytes);
+					encryptedData = encryptData(lastPacket);
+				} else {
+					encryptedData = encryptData(fromFileBuffer);
+				}
+
+				System.out.println("Bytes being written AFTER encryption: " + encryptedData.length);
+				packetCount++;
+				System.out.println("This is packetCount: " + packetCount);
+
 				toServer.writeInt(1);
-				toServer.writeInt(numBytes);
-				toServer.write(fromFileBuffer, 0, numBytes);
+				toServer.writeInt(encryptedData.length);
+				toServer.write(encryptedData, 0, encryptedData.length);
 				toServer.flush();
 			}
 
@@ -81,9 +104,13 @@ public class ClientCP1 {
 			System.out.println("Waiting for confirmation that server has recieved data.");
 
 			int confirmation = fromServer.readInt();
+			double endTime = (double) (System.currentTimeMillis() - startTime) / (double)1000;
 
 			if (confirmation == 33) {
-				System.out.println("Server has successfully recieved data.");
+				System.out.println("\nServer has successfully recieved data.");
+				System.out.println("Sent file, " + fileName + ", of size " + totalBytes + " bytes, took " + endTime + " seconds.");
+			} else {
+				System.out.println("Server did not respond correctly, something went wrong...");
 			}
 
 		} catch (Exception exception) {
@@ -101,13 +128,28 @@ public class ClientCP1 {
 			toServer.writeInt(0);
 
 			System.out.println("Filename bytes: " + fileName.getBytes().length);
-			toServer.writeInt(fileName.getBytes().length);
-			toServer.write(fileName.getBytes());
+			byte[] encryptedFileName = encryptData(fileName.getBytes());
+			
+			toServer.writeInt(encryptedFileName.length);
+			toServer.write(encryptedFileName);
 			toServer.flush();
 
 			System.out.println("File name sent successfully!");
 		} catch (Exception exception) {
 			System.out.println("Cannot transfer file... Please try again.");
+		}
+	}
+
+	// encryption algorithm 
+	public static byte[] encryptData(byte[] data) {
+		try {
+			System.out.println("Encrypting data to be sent...");
+			byte[] encryptedData = mainCipher.doFinal(data);
+			System.out.println("Encrypted data. Sending...");
+			return encryptedData;
+		} catch (Exception exception) {
+			System.out.println("Something went wrong with the encryption...");
+			return null;
 		}
 	}
 
@@ -140,23 +182,15 @@ public class ClientCP1 {
 	// authenticate the server
 	public static void authenticateServer() {
 		try {
-
-			// random number generator for
-			Random random = new Random(System.currentTimeMillis());
-			int nonce = random.nextInt(100000);
-
+			System.out.println("\nStarting authentication...");
 			// tell server to authenticate
 			toServer.writeInt(-44);
 
-			System.out.println("Generated NONCE value: " + nonce);
-			// send nonce
-			toServer.writeInt(nonce);
-
-			// recieve back encrypted nonce
+			// recieve encrypted nonce
 			int numBytes = fromServer.readInt();
 			byte[] encryptedNonce = new byte[numBytes];
 			fromServer.readFully(encryptedNonce, 0, numBytes);
-			System.out.println("Recieved back encrypted Nonce Value. Getting Certificate...");
+			System.out.println("Recieved encrypted Nonce Value. Getting Certificate...");
 
 			// getting certificate
 			numBytes = fromServer.readInt();
@@ -194,6 +228,8 @@ public class ClientCP1 {
 			signedCert.verify(caKey);
 
 			publicKey = signedCert.getPublicKey();
+			mainCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			mainCipher.init(Cipher.ENCRYPT_MODE, publicKey);
 
 			Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
 			cipher.init(Cipher.DECRYPT_MODE, publicKey);
@@ -201,14 +237,30 @@ public class ClientCP1 {
 			int decryptedNONCEInt = ByteBuffer.wrap(decryptedNONCE).getInt();
 
 			System.out.println("Decrypted NONCE is: " + decryptedNONCEInt);
-			if (decryptedNONCEInt == nonce) {
-				toServer.writeInt(77);
-				System.out.println("Server identity checked and verified...");
-			} else {
-				toServer.writeInt(66);
-				System.out.println("Incorrect Server identity... Ending...");
+
+			// encrypt nonce with public key top send back
+			System.out.println("Encrypting NONCE with public key to send back to server...");
+			byte[] encryptedNoncePublic = ByteBuffer.allocate(4).putInt(decryptedNONCEInt).array();
+			Cipher enCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			enCipher.init(Cipher.ENCRYPT_MODE, publicKey);
+			byte[] encryptedNoncePublicSending = enCipher.doFinal(encryptedNoncePublic);
+			System.out.println("Nonce encrypted and sending back to server...");
+
+			// send encrypted nonce
+            toServer.writeInt(encryptedNoncePublicSending.length);
+            toServer.write(encryptedNoncePublicSending);
+            toServer.flush();
+            System.out.println("Encrypted nonce sent to client. Waiting for confirmation...");
+			
+			int serverAccept = fromServer.readInt();
+			if (serverAccept == 88) {
+				System.out.println("Server accepted connection!");
+			} else if (serverAccept == 55) {
+				System.out.println("Server did not accept connection...");
 				endConnection();
 			}
+
+
 		} catch (Exception exception) {
 			System.out.println("Something went wrong with authenticating the server... Prolly something wrong with certificate.");
 			endConnection();

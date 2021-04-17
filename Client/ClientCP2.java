@@ -17,7 +17,7 @@ import java.util.Scanner;
 
 import javax.crypto.Cipher;
 
-public class ClientCP2 {
+public class ClientCP1 {
 
 	static final Scanner scanner = new Scanner(System.in); // scanning user input
 	static Socket clientSocket = null;
@@ -140,23 +140,15 @@ public class ClientCP2 {
 	// authenticate the server
 	public static void authenticateServer() {
 		try {
-
-			// random number generator for
-			Random random = new Random(System.currentTimeMillis());
-			int nonce = random.nextInt(100000);
-
+			System.out.println("\nStarting authentication...");
 			// tell server to authenticate
 			toServer.writeInt(-44);
 
-			System.out.println("Generated NONCE value: " + nonce);
-			// send nonce
-			toServer.writeInt(nonce);
-
-			// recieve back encrypted nonce
+			// recieve encrypted nonce
 			int numBytes = fromServer.readInt();
 			byte[] encryptedNonce = new byte[numBytes];
 			fromServer.readFully(encryptedNonce, 0, numBytes);
-			System.out.println("Recieved back encrypted Nonce Value. Getting Certificate...");
+			System.out.println("Recieved encrypted Nonce Value. Getting Certificate...");
 
 			// getting certificate
 			numBytes = fromServer.readInt();
@@ -201,14 +193,30 @@ public class ClientCP2 {
 			int decryptedNONCEInt = ByteBuffer.wrap(decryptedNONCE).getInt();
 
 			System.out.println("Decrypted NONCE is: " + decryptedNONCEInt);
-			if (decryptedNONCEInt == nonce) {
-				toServer.writeInt(77);
-				System.out.println("Server identity checked and verified...");
-			} else {
-				toServer.writeInt(66);
-				System.out.println("Incorrect Server identity... Ending...");
+
+			// encrypt nonce with public key top send back
+			System.out.println("Encrypting NONCE with public key to send back to server...");
+			byte[] encryptedNoncePublic = ByteBuffer.allocate(4).putInt(decryptedNONCEInt).array();
+			Cipher enCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			enCipher.init(Cipher.ENCRYPT_MODE, publicKey);
+			byte[] encryptedNoncePublicSending = enCipher.doFinal(encryptedNoncePublic);
+			System.out.println("Nonce encrypted and sending back to server...");
+
+			// send encrypted nonce
+            toServer.writeInt(encryptedNoncePublicSending.length);
+            toServer.write(encryptedNoncePublicSending);
+            toServer.flush();
+            System.out.println("Encrypted nonce sent to client. Waiting for confirmation...");
+			
+			int serverAccept = fromServer.readInt();
+			if (serverAccept == 88) {
+				System.out.println("Server accepted connection!");
+			} else if (serverAccept == 55) {
+				System.out.println("Server did not accept connection...");
 				endConnection();
 			}
+
+
 		} catch (Exception exception) {
 			System.out.println("Something went wrong with authenticating the server... Prolly something wrong with certificate.");
 			endConnection();

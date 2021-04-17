@@ -14,11 +14,12 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.Random;
 import java.util.Scanner;
 
 import javax.crypto.Cipher;
 
-public class ServerCP2 {
+public class ServerCP1 {
     static final Scanner scanner = new Scanner(System.in); // scanning user input
     static ServerSocket welcomeSocket = null;
     static Socket connectionSocket = null;
@@ -27,6 +28,7 @@ public class ServerCP2 {
     static FileOutputStream fileOutputStream = null;
     static BufferedOutputStream bufferedFileOutputStream = null;
     static PrivateKey privateKey = getPrivateKey("private_key.der");
+    static PublicKey publicKey = getPublicKey("public_key.der");
 
     public static void main(String[] args) {
 
@@ -160,17 +162,18 @@ public class ServerCP2 {
         try {
             System.out.println("Starting authentication with client");
 
-            int nonce = fromClient.readInt();
-            //nonce = 1; // to spoof that i am fake...
+            // random number generator for
+			Random random = new Random(System.currentTimeMillis());
+			int nonce = random.nextInt(100000);
 
-            System.out.println("Gotten NONCE value of: " + nonce + ". Encrypting this nonce now...");
+            System.out.println("Generated NONCE value of: " + nonce + ". Encrypting this nonce now...");
 
             // encrypt nonce
             byte[] nonceByte = ByteBuffer.allocate(4).putInt(nonce).array();
             Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
             cipher.init(Cipher.ENCRYPT_MODE, privateKey);
             byte[] encryptedNONCE = cipher.doFinal(nonceByte);
-            System.out.println("Nonce encrypted and sending back to client...");
+            System.out.println("Nonce encrypted and sending to client...");
 
             // send encrypted nonce
             toClient.writeInt(encryptedNONCE.length);
@@ -190,7 +193,6 @@ public class ServerCP2 {
 
             int count;
             byte[] Buffer = new byte[1023];
-            System.out.println("Sending...");
             while ((count = bufferedFileInputStream.read(Buffer)) > 0) {
                 toClient.write(Buffer, 0, count);
                 toClient.flush();
@@ -199,14 +201,27 @@ public class ServerCP2 {
             bufferedFileInputStream.close();
             fileInputStream.close();
 
-            System.out.println("Certificate sent. Hopefully NONCE and Certificate is legit :P");
+            System.out.println("Certificate sent. Hopefully Client will be legit!");
 
-            int verified = fromClient.readInt();
+            // recieve encrypted nonce
+            int numBytesPublic = fromClient.readInt();
+            byte[] encryptedNoncePublic = new byte[numBytesPublic];
+            fromClient.readFully(encryptedNoncePublic, 0, numBytesPublic);
+            System.out.println("Recieved encrypted Nonce Value. Decrypting with private key and checking...");
 
-            if (verified == 77) {
-                System.out.println("Yay! Client knows I am real!");
-            } else if (verified == 66) {
-                System.out.println("Nuuuuu... Client thinks I am fake...");
+            Cipher deCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			deCipher.init(Cipher.DECRYPT_MODE, privateKey);
+			byte[] decryptedNONCE = deCipher.doFinal(encryptedNoncePublic);
+			int verifyNonce = ByteBuffer.wrap(decryptedNONCE).getInt();
+            System.out.println("Decrypted NONCE is: " + verifyNonce);
+
+            if (verifyNonce == nonce) {
+                toClient.writeInt(88);
+                System.out.println("Nonce matches. Client is legit.");
+            } else {
+                toClient.writeInt(55);
+                System.out.println("Nonce doesn't match. Client is not legit.");
+                endConnection();
             }
 
         } catch (Exception exception) {
