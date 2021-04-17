@@ -18,6 +18,8 @@ import java.util.Random;
 import java.util.Scanner;
 
 import javax.crypto.Cipher;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 
 public class ServerCP1 {
     static final Scanner scanner = new Scanner(System.in); // scanning user input
@@ -29,6 +31,10 @@ public class ServerCP1 {
     static BufferedOutputStream bufferedFileOutputStream = null;
     static PrivateKey privateKey = getPrivateKey("private_key.der");
     static PublicKey publicKey = getPublicKey("public_key.der");
+    static int packetCount = 0;
+    static Cipher mainCipherEncrypt;
+	static Cipher mainCipherDecrypt;
+	static SecretKey sessionKey;
 
     public static void main(String[] args) {
 
@@ -55,6 +61,7 @@ public class ServerCP1 {
                 authenticateClient();
             } else if (packetType == 0) {
                 getFileName();
+                packetCount = 0;
             } else if (packetType == 1) {
                 getPackets();
             } else if (packetType == 44) {
@@ -73,21 +80,26 @@ public class ServerCP1 {
     // recieve the packets
     public static void getPackets() {
         try {
-            int numBytes = fromClient.readInt();
-            byte[] block = new byte[numBytes];
-            fromClient.readFully(block, 0, numBytes);
+            
 
-            System.out.println("Bytes being read: " + numBytes);
+            int encryptedNumBytes = fromClient.readInt();
+            byte[] encryptedBlock = new byte[encryptedNumBytes];
+            fromClient.readFully(encryptedBlock, 0, encryptedNumBytes);
 
-            if (numBytes > 0)
-                bufferedFileOutputStream.write(block, 0, numBytes);
+            byte[] decryptedData = decryptData(encryptedBlock);
 
-            if (numBytes < 117) {
+            packetCount++;
+            System.out.println("This is packetCount: " + packetCount);
+
+            if (decryptedData.length > 0)
+                bufferedFileOutputStream.write(decryptedData, 0, decryptedData.length);
+
+            if (decryptedData.length < 245) {
                 if (bufferedFileOutputStream != null)
                     bufferedFileOutputStream.close();
                 if (bufferedFileOutputStream != null)
                     fileOutputStream.close();
-                System.out.println("File recieved.");
+                System.out.println("\nFile succesffuly recieved. Can transfer new files.");
                 toClient.writeInt(33);
             }
         } catch (Exception exception) {
@@ -108,9 +120,11 @@ public class ServerCP1 {
             // https://stackoverflow.com/questions/25897627/datainputstream-read-vs-datainputstream-readfully
             fromClient.readFully(fileName, 0, numBytes);
 
-            System.out.println("File name is: " + new String(fileName, 0, numBytes));
+            byte[] decryptedData = decryptData(fileName);
 
-            fileOutputStream = new FileOutputStream("recv_" + new String(fileName, 0, numBytes));
+            System.out.println("File name is: " + new String(decryptedData, 0, decryptedData.length) + " with length: " + decryptedData.length);
+
+            fileOutputStream = new FileOutputStream("recv_" + new String(decryptedData, 0, decryptedData.length));
             bufferedFileOutputStream = new BufferedOutputStream(fileOutputStream);
 
             System.out.println("File name recieved... Getting the packets...");
@@ -118,6 +132,21 @@ public class ServerCP1 {
         } catch (Exception exception) {
             System.out.println("Something wrong when retriving filename...");
         }
+    }
+
+    // decrypt data
+    public static byte[] decryptData(byte[] encryptedData) {
+        try {
+			System.out.println("Decrypting data received...");
+            System.out.println("Encrypted data of length: " + encryptedData.length);
+            byte[] decryptedData = mainCipherDecrypt.doFinal(encryptedData);
+            System.out.println("Successfully decrypted data.");
+            System.out.println("Decrypted data of length: " + decryptedData.length);
+			return decryptedData;
+		} catch (Exception exception) {
+			System.out.println("Something went wrong with the encryption...");
+			return null;
+		}
     }
 
     // end connection
@@ -207,11 +236,27 @@ public class ServerCP1 {
             int numBytesPublic = fromClient.readInt();
             byte[] encryptedNoncePublic = new byte[numBytesPublic];
             fromClient.readFully(encryptedNoncePublic, 0, numBytesPublic);
-            System.out.println("Recieved encrypted Nonce Value. Decrypting with private key and checking...");
+            System.out.println("Recieved encrypted Nonce Value.");
 
+            // recieve encrypted session key
+            int encryptedSessionKeyLength = fromClient.readInt();
+            byte[] encryptedSessionKey = new byte[encryptedSessionKeyLength];
+            fromClient.readFully(encryptedSessionKey, 0, encryptedSessionKeyLength);
+            System.out.println("Recieved encrypted session key.");
+
+            // decrypt session key
+            System.out.println("Decrypting to get session key...");
             Cipher deCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			deCipher.init(Cipher.DECRYPT_MODE, privateKey);
-			byte[] decryptedNONCE = deCipher.doFinal(encryptedNoncePublic);
+            deCipher.init(Cipher.DECRYPT_MODE, privateKey);
+            byte[] decryptedSessionKey = deCipher.doFinal(encryptedSessionKey);
+            sessionKey = new SecretKeySpec(decryptedSessionKey, 0, decryptedSessionKey.length, "AES");
+            mainCipherEncrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
+			mainCipherEncrypt.init(Cipher.ENCRYPT_MODE, sessionKey);
+			mainCipherDecrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
+			mainCipherDecrypt.init(Cipher.DECRYPT_MODE, sessionKey);
+            System.out.println("Session key recieved. Decrypting nonce with session key...");
+            
+			byte[] decryptedNONCE = mainCipherDecrypt.doFinal(encryptedNoncePublic);
 			int verifyNonce = ByteBuffer.wrap(decryptedNONCE).getInt();
             System.out.println("Decrypted NONCE is: " + verifyNonce);
 

@@ -1,11 +1,15 @@
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.BufferedWriter;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.io.Writer;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.security.PublicKey;
@@ -108,7 +112,12 @@ public class ClientCP1 {
 
 			if (confirmation == 33) {
 				System.out.println("\nServer has successfully recieved data.");
-				System.out.println("Sent file, " + fileName + ", of size " + totalBytes + " bytes, took " + endTime + " seconds.");
+				String message = "Sent file, " + fileName + ", of size " + totalBytes + " bytes, took " + endTime + " seconds.";
+				System.out.println(message);
+				// write to file. so can look back and see see
+				Writer writer = new BufferedWriter(new FileWriter("logsCP1.txt", true));
+				writer.append(message + "\n");
+				writer.close();
 			} else {
 				System.out.println("Server did not respond correctly, something went wrong...");
 			}
