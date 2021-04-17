@@ -1,11 +1,13 @@
-import java.io.BufferedOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.FileOutputStream;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.*;
+import java.security.*;
+import java.security.spec.*;
+import java.util.Base64;
 import java.util.Scanner;
-import java.util.concurrent.locks.Lock;
+import java.util.Base64.Encoder;
+import javax.crypto.Cipher;
 
 public class ServerCP1 {
     static final Scanner scanner = new Scanner(System.in); // scanning user input
@@ -15,6 +17,10 @@ public class ServerCP1 {
     static DataInputStream fromClient = null;
     static FileOutputStream fileOutputStream = null;
     static BufferedOutputStream bufferedFileOutputStream = null;
+    static String serverCert = "D:/Storage/School/SUTD/Term 5/50.005 Computer System Engineering/PA2/50005---PA2---File-Transfer/Keys/certificate_1004410.crt";
+    static String nonce;
+    static Key seshKey;
+    static boolean verifiedClient = false;
 
     public static void main(String[] args) {
 
@@ -24,14 +30,21 @@ public class ServerCP1 {
             establishConnection(port);
 
             while (!connectionSocket.isClosed()) {
+                while (!verifiedClient) {
+                    System.out.println("Verifying client");
+                    receiveData(); // be asked for credentials
+                    System.out.println(verifiedClient);
+                }
+                givePerm();
                 System.out.println("\nWaiting for data...");
-                recieveData();
+                receiveData();
+
             }
         }
     }
 
-    // recieve the data from client side
-    public static void recieveData() {
+    // receive the data from client side
+    public static void receiveData() {
         try {
             int packetType = fromClient.readInt();
 
@@ -43,6 +56,17 @@ public class ServerCP1 {
                 getPackets();
             } else if (packetType == 44) {
                 System.out.println("File transfer ended 1.");
+            } else if (packetType == 6) {
+                generateNonce();
+                sendNonce();
+                sendCert(serverCert);
+
+            } else if (packetType == 4) {
+                verifiedClient = checkNonce();
+
+            } else if (packetType == 5) {
+                getSeshKey();
+
             } else {
                 System.out.println("File transfer ended 2.");
             }
@@ -53,7 +77,7 @@ public class ServerCP1 {
         }
     }
 
-    // recieve the packets
+    // receive the packets
     public static void getPackets() {
         try {
             int numBytes = fromClient.readInt();
@@ -70,14 +94,14 @@ public class ServerCP1 {
                     bufferedFileOutputStream.close();
                 if (bufferedFileOutputStream != null)
                     fileOutputStream.close();
-                System.out.println("File recieved.");
+                System.out.println("File received.");
             }
         } catch (Exception exception) {
             System.out.println("Problem getting packets... Please try again.");
         }
     }
 
-    // recieve the filename
+    // receive the filename
     public static void getFileName() {
         try {
             System.out.println("Getting file name...");
@@ -95,7 +119,7 @@ public class ServerCP1 {
             fileOutputStream = new FileOutputStream("recv_" + new String(fileName, 0, numBytes));
             bufferedFileOutputStream = new BufferedOutputStream(fileOutputStream);
 
-            System.out.println("File name recieved... Getting the packets...");
+            System.out.println("File name received... Getting the packets...");
 
         } catch (Exception exception) {
             System.out.println("Something wrong when retriving filename...");
@@ -169,4 +193,114 @@ public class ServerCP1 {
         }
         return port;
     }
+
+    // key readers
+    public static PrivateKey getPrivate() throws Exception {
+
+        byte[] keyBytes = Files.readAllBytes(Paths.get("Keys/private_key.der"));
+        PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
+        KeyFactory kf = KeyFactory.getInstance("RSA");
+        return kf.generatePrivate(spec);
+
+    }
+
+    public static PublicKey getPublic(String filename) throws Exception {
+        byte[] keyBytes = Files.readAllBytes(Paths.get(filename));
+        X509EncodedKeySpec spec = new X509EncodedKeySpec(keyBytes);
+        KeyFactory kf = KeyFactory.getInstance("RSA");
+        return kf.generatePublic(spec);
+    }
+
+    /*
+     * AP 1 Proves to client server is legit
+     */
+    public static String generateNonce() {
+        /*SecureRandom rand = new SecureRandom();
+        byte bytes[] = new byte[20];
+        rand.nextBytes(bytes); // generates random 20 bytes
+        Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+        String token = encoder.encodeToString(bytes);*/
+        String token = "nonce";
+        return token;
+    }
+
+    public static void sendCert(String certPath) {
+        try {
+            System.out.println("Sending Certificate");
+            toClient.writeInt(3);
+            toClient.writeUTF(certPath);
+            toClient.flush();
+            System.out.println("Certificate sent sucessfully");
+        } catch (Exception e) {
+            System.out.println("Certificate failed to send");
+        }
+
+    }
+
+    public static void sendNonce() {
+        try {
+            nonce = generateNonce();
+            System.out.println("Sending nonce");
+            toClient.writeInt(2);
+            toClient.writeUTF(nonce);
+            toClient.flush();
+            System.out.println("Nonce sent");
+        } catch (Exception e) {
+            System.out.println("Nonce failed to send");
+        }
+    }
+
+    /*
+     * AP 2 Verify client
+     */
+
+    public static boolean checkNonce() {
+        boolean result = false;
+
+        try {
+            int numBytes = fromClient.readInt();
+            byte[] cNonce = new byte[numBytes];
+            fromClient.readFully(cNonce, 0, numBytes);
+            if (cNonce.toString().equals(nonce)) {
+                System.out.println("Is the nonce the same? " + (cNonce.toString().equals(nonce)));
+                result = true;
+            } 
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return result;
+
+    }
+
+    public static void getSeshKey() {
+        try {
+            int numBytes = fromClient.readInt();
+            byte[] sKey = new byte[numBytes];
+            fromClient.readFully(sKey, 0, numBytes);
+
+            // get private key to decode public key
+            PrivateKey privateKey = getPrivate();
+            Cipher c = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            c.init(Cipher.DECRYPT_MODE, privateKey);
+            seshKey = c.unwrap(sKey, "AES/CBC/PKCS5Padding", Cipher.SECRET_KEY);
+            System.out.println("Session key retrieved");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    /*
+     * AP3 Tell client to start sending
+     */
+    public static void givePerm() {
+        try {
+            toClient.writeInt(10);
+            toClient.flush();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 }
