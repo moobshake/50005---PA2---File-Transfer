@@ -135,6 +135,9 @@ public class ClientCP1 {
 	// send filename
 	public static void sendFileName(String fileName) {
 		try {
+			// generate and send session key first
+			sessionKeyGen();
+
 			System.out.println("Sending filename '" + fileName + "'...");
 
 			// Send the filename
@@ -189,6 +192,38 @@ public class ClientCP1 {
 		} catch (Exception e) {
 			System.out.println("Cannot establish connection. Please check address and port.");
 			return false;
+		}
+	}
+
+	// generate and send session key
+	public static void sessionKeyGen() {
+		try {
+			System.out.println("\nGenerating session key...");
+			// Generate session key
+			KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+			keyGenerator.init(128);
+			sessionKey = keyGenerator.generateKey();
+			mainCipherEncrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
+			mainCipherEncrypt.init(Cipher.ENCRYPT_MODE, sessionKey);
+			mainCipherDecrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
+			mainCipherDecrypt.init(Cipher.DECRYPT_MODE, sessionKey);
+			System.out.println("Session key generated.");
+
+			// send encrypted session key with public key
+			System.out.println("Sending encrypted session key with public key...");
+			Cipher enCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			enCipher.init(Cipher.ENCRYPT_MODE, publicKey);
+
+			toServer.writeInt(22);
+			byte[] encryptSessionKey = enCipher.doFinal(sessionKey.getEncoded());
+            toServer.writeInt(encryptSessionKey.length);
+            toServer.write(encryptSessionKey);
+            toServer.flush();
+            System.out.println("Encrypted session key sent. Sending file with AES encryption...\n");
+		}
+		catch (Exception exception) {
+			System.out.println("\nSomething went wrong sending session key...\n");
+			endConnection();
 		}
 	}
 

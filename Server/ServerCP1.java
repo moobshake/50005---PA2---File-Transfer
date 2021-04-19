@@ -246,10 +246,10 @@ public class ServerCP1 {
 
             if (verifyNonce == nonce) {
                 toClient.writeInt(88);
-                System.out.println("Nonce matches. Client is legit.");
+                System.out.println("Nonce matches. Client is authenticated.");
             } else {
                 toClient.writeInt(55);
-                System.out.println("Nonce doesn't match. Client is not legit.");
+                System.out.println("Nonce doesn't match. Client is not authenticated.");
                 endConnection();
             }
 

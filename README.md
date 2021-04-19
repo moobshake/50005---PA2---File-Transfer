@@ -3,6 +3,7 @@
 - Lau Yu Hui, 1004410
 - Tan Jing Heng Darryl, 1004152
 ## How to Run:
+NOTE - We used java version 15.0.2  
 1. cd to each of the 'Client' and 'Server'.
 2. run 'java ./ServerCP1.java' and 'java ./ClientCP1.java' (can run CP2, just change the filename)
 3. Follow the prompts in the programs to change port number or address
@@ -17,6 +18,7 @@
 >- -44: Authentication
 >- 0 : Get FileName  
 >- 1 : Get Packets  
+>- 22 : Recieve Session Key
 >- 44 : End client connection
 >- 66 : Client say server is fake  
 >- 77 : Client say sever is real

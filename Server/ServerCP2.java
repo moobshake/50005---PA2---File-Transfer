@@ -64,6 +64,8 @@ public class ServerCP1 {
                 packetCount = 0;
             } else if (packetType == 1) {
                 getPackets();
+            } else if (packetType == 22) {
+                sessionKeyRec();
             } else if (packetType == 44) {
                 System.out.println("Client ended connection...");
                 endConnection();
@@ -80,8 +82,6 @@ public class ServerCP1 {
     // recieve the packets
     public static void getPackets() {
         try {
-            
-
             int encryptedNumBytes = fromClient.readInt();
             byte[] encryptedBlock = new byte[encryptedNumBytes];
             fromClient.readFully(encryptedBlock, 0, encryptedNumBytes);
@@ -99,7 +99,7 @@ public class ServerCP1 {
                     bufferedFileOutputStream.close();
                 if (bufferedFileOutputStream != null)
                     fileOutputStream.close();
-                System.out.println("\nFile succesffuly recieved. Can transfer new files.");
+                System.out.println("\nFile has been succesfully recieved. Can transfer new files.");
                 toClient.writeInt(33);
             }
         } catch (Exception exception) {
@@ -186,10 +186,37 @@ public class ServerCP1 {
         }
     }
 
+    // recieve session key from client 
+    public static void sessionKeyRec() {
+        try {
+            // recieve encrypted session key
+            int encryptedSessionKeyLength = fromClient.readInt();
+            byte[] encryptedSessionKey = new byte[encryptedSessionKeyLength];
+            fromClient.readFully(encryptedSessionKey, 0, encryptedSessionKeyLength);
+            System.out.println("\nRecieved encrypted session key.");
+
+            // decrypt session key
+            System.out.println("Decrypting to get session key...");
+            Cipher deCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            deCipher.init(Cipher.DECRYPT_MODE, privateKey);
+            byte[] decryptedSessionKey = deCipher.doFinal(encryptedSessionKey);
+            sessionKey = new SecretKeySpec(decryptedSessionKey, 0, decryptedSessionKey.length, "AES");
+            mainCipherEncrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
+			mainCipherEncrypt.init(Cipher.ENCRYPT_MODE, sessionKey);
+			mainCipherDecrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
+			mainCipherDecrypt.init(Cipher.DECRYPT_MODE, sessionKey);
+            System.out.println("Session key decrypted. Using session key to decrypt data...");
+        }
+        catch (Exception exception) {
+            System.out.println("Something wrong when recieving session key...");
+            endConnection();
+        }
+    }
+
     // authentication for client.
     public static void authenticateClient() {
         try {
-            System.out.println("Starting authentication with client");
+            System.out.println("Starting authentication with client...");
 
             // random number generator for
 			Random random = new Random(System.currentTimeMillis());
@@ -262,10 +289,10 @@ public class ServerCP1 {
 
             if (verifyNonce == nonce) {
                 toClient.writeInt(88);
-                System.out.println("Nonce matches. Client is legit.");
+                System.out.println("Nonce matches. Client is authenticated.");
             } else {
                 toClient.writeInt(55);
-                System.out.println("Nonce doesn't match. Client is not legit.");
+                System.out.println("Nonce doesn't match. Client is not authenticated.");
                 endConnection();
             }
 
