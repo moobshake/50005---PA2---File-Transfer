@@ -170,8 +170,10 @@ public class ClientCP1 {
 			toServer.writeInt(44);
 			clientSocket.close();
 			System.out.println("Connection closed.");
+			System.exit(0);
 		} catch (Exception exception) {
 			System.out.println("Connection already closed.");
+			System.exit(0);
 		}
 	}
 
@@ -327,8 +329,9 @@ public class ClientCP1 {
 		try {
 			System.out.print("\nPlease enter password to have access to the server: ");
 			String password = scanner.nextLine();
-
+			System.out.println("Encrypting password with public key...");
 			byte[] encryptedPassword = mainCipherEN.doFinal(password.getBytes());
+			System.out.println("Password encrypted. Sending to server now...");
 			
 			toServer.writeInt(encryptedPassword.length);
 			toServer.write(encryptedPassword);

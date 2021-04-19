@@ -306,14 +306,13 @@ public class ServerCP1 {
             System.out.println("Waiting for client to send password over...\n");
 
             int numBytes = fromClient.readInt();
-            System.out.println("Password recieved. Checking...");
             byte[] clientPassword = new byte[numBytes];
             fromClient.readFully(clientPassword, 0, numBytes);
-
+            System.out.println("Encrypted password recieved. Checking...");
+            System.out.println("Decrypting password with private key... ");
             byte[] decryptedData = mainCipherDE.doFinal(clientPassword);
             String clientPasswordDecryted = new String(decryptedData);
-
-            System.out.println("Client entered: " + clientPasswordDecryted);
+            System.out.println("Password decrypted... Client entered: " + clientPasswordDecryted);
 
             if (clientPasswordDecryted.equals(password)) {
                 System.out.println("Client entered correct password. Is authenticated!\n");

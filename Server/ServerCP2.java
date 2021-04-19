@@ -22,7 +22,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
-public class ServerCP1 {
+public class ServerCP2 {
     static final Scanner scanner = new Scanner(System.in); // scanning user input
     static ServerSocket welcomeSocket = null;
     static Socket connectionSocket = null;
@@ -372,14 +372,14 @@ public class ServerCP1 {
             System.out.println("Encrypted password session key sent. Waiting for password to be sent over...\n");
 
             int numBytes = fromClient.readInt();
-            System.out.println("Password recieved. Checking...");
             byte[] clientPassword = new byte[numBytes];
             fromClient.readFully(clientPassword, 0, numBytes);
-
+            System.out.println("Encrypted password recieved. Checking...");
+            
+            System.out.println("Decrypting password with password session key... ");
             byte[] decryptedData = oneTimeCipher.doFinal(clientPassword);
             String clientPasswordDecryted = new String(decryptedData);
-
-            System.out.println("Client entered: " + clientPasswordDecryted);
+            System.out.println("Password decrypted... Client entered: " + clientPasswordDecryted);
 
             if (clientPasswordDecryted.equals(password)) {
                 System.out.println("Client entered correct password. Is authenticated!\n");

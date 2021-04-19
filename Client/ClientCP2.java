@@ -25,7 +25,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
-public class ClientCP1 {
+public class ClientCP2 {
 
 	static final Scanner scanner = new Scanner(System.in); // scanning user input
 	static Socket clientSocket = null;
@@ -404,11 +404,12 @@ public class ClientCP1 {
 
 			System.out.print("\nPlease enter password to have access to the server: ");
 			String password = scanner.nextLine();
-
+			System.out.println("Encrypting password with password session key...");
 			Cipher passwordCipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
 			passwordCipher.init(Cipher.ENCRYPT_MODE, passwordSessionKey);
 
 			byte[] encryptedPassword = passwordCipher.doFinal(password.getBytes());
+			System.out.println("Password encrypted. Sending to server now...");
 			
 			toServer.writeInt(encryptedPassword.length);
 			toServer.write(encryptedPassword);
