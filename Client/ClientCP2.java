@@ -136,7 +136,7 @@ public class ClientCP1 {
 	public static void sendFileName(String fileName) {
 		try {
 			// generate and send session key first
-			sessionKeyGen();
+			sessionKeyGen(true);
 
 			System.out.println("Sending filename '" + fileName + "'...");
 
@@ -196,7 +196,7 @@ public class ClientCP1 {
 	}
 
 	// generate and send session key
-	public static void sessionKeyGen() {
+	public static void sessionKeyGen(boolean newFile) {
 		try {
 			System.out.println("\nGenerating session key...");
 			// Generate session key
@@ -213,13 +213,15 @@ public class ClientCP1 {
 			System.out.println("Sending encrypted session key with public key...");
 			Cipher enCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
 			enCipher.init(Cipher.ENCRYPT_MODE, publicKey);
-
-			toServer.writeInt(22);
+			
+			if (newFile){
+				toServer.writeInt(22);
+			}
 			byte[] encryptSessionKey = enCipher.doFinal(sessionKey.getEncoded());
             toServer.writeInt(encryptSessionKey.length);
             toServer.write(encryptSessionKey);
             toServer.flush();
-            System.out.println("Encrypted session key sent. Sending file with AES encryption...\n");
+            System.out.println("Encrypted session key sent.\n");
 		}
 		catch (Exception exception) {
 			System.out.println("\nSomething went wrong sending session key...\n");
@@ -320,6 +322,7 @@ public class ClientCP1 {
 			int serverAccept = fromServer.readInt();
 			if (serverAccept == 88) {
 				System.out.println("Server accepted connection!");
+				checkServerLive();
 			} else if (serverAccept == 55) {
 				System.out.println("Server did not accept connection...");
 				endConnection();
@@ -328,6 +331,52 @@ public class ClientCP1 {
 
 		} catch (Exception exception) {
 			System.out.println("Something went wrong with authenticating the server... Prolly something wrong with certificate.");
+			endConnection();
+		}
+	}
+
+	// check if server is live
+	public static void checkServerLive() {
+		try {
+			System.out.println("\nChecking server is live...");
+			// random number generator for
+			Random random = new Random(System.currentTimeMillis());
+			int nonce = random.nextInt(100000);
+
+            System.out.println("Generated NONCE value of: " + nonce + ". Encrypting this nonce now...");
+			sessionKeyGen(false);
+			byte[] encryptedNonceSession = ByteBuffer.allocate(4).putInt(nonce).array();
+			byte[] encryptedNonceSessionSending = mainCipherEncrypt.doFinal(encryptedNonceSession);
+			toServer.writeInt(encryptedNonceSessionSending.length);
+            toServer.write(encryptedNonceSessionSending);
+            toServer.flush();
+            System.out.println("Encrypted nonce with session key sent to server.");
+
+			System.out.println("Waiting for nonce encrypted with server private key to be sent back...");
+
+			// recieve encrypted nonce
+			int numBytes = fromServer.readInt();
+			byte[] encryptedNonce = new byte[numBytes];
+			fromServer.readFully(encryptedNonce, 0, numBytes);
+			System.out.println("Recieved encrypted Nonce Value. Decrypting with public key and checking if server is live...");
+
+			Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			cipher.init(Cipher.DECRYPT_MODE, publicKey);
+			byte[] decryptedNONCE = cipher.doFinal(encryptedNonce);
+			int decryptedNONCEInt = ByteBuffer.wrap(decryptedNONCE).getInt();
+
+			if (decryptedNONCEInt == nonce) {
+				toServer.writeInt(88);
+                System.out.println("Nonce matches. Server is live.");
+            } else {
+                toServer.writeInt(55);
+                System.out.println("Nonce doesn't match. Server is not live.");
+                endConnection();
+            }
+
+		}
+		catch (Exception exception) {
+			System.out.println("Server is not live...");
 			endConnection();
 		}
 	}

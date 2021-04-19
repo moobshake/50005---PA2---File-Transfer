@@ -289,16 +289,60 @@ public class ServerCP1 {
 
             if (verifyNonce == nonce) {
                 toClient.writeInt(88);
-                System.out.println("Nonce matches. Client is authenticated.");
+                System.out.println("Nonce matches. Client is live.");
+                tellClientLive();
             } else {
                 toClient.writeInt(55);
-                System.out.println("Nonce doesn't match. Client is not authenticated.");
+                System.out.println("Nonce doesn't match. Client is not live.");
                 endConnection();
             }
 
         } catch (Exception exception) {
             System.out.println("Something wrong with authentication...");
         }
+    }
+
+    // tell client that server is live
+    public static void tellClientLive() {
+        try {
+            System.out.println("\nClient going to check if Sever is live...");
+            sessionKeyRec();
+            // recieve encrypted nonce
+			int numBytes = fromClient.readInt();
+			byte[] encryptedNonce = new byte[numBytes];
+			fromClient.readFully(encryptedNonce, 0, numBytes);
+			System.out.println("Recieved encrypted Nonce Value. Using session key to decrypt...");
+            
+            byte[] decryptedNONCE = mainCipherDecrypt.doFinal(encryptedNonce);
+            int decryptedNONCEInt = ByteBuffer.wrap(decryptedNONCE).getInt();
+
+			System.out.println("Decrypted NONCE is: " + decryptedNONCEInt + ". Encrypting this with private key...");
+
+            // encrypt nonce
+            byte[] nonceByte = ByteBuffer.allocate(4).putInt(decryptedNONCEInt).array();
+            Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, privateKey);
+            byte[] encryptedNONCE = cipher.doFinal(nonceByte);
+            System.out.println("Nonce encrypted and sending to client...");
+
+            // send encrypted nonce
+            toClient.writeInt(encryptedNONCE.length);
+            toClient.write(encryptedNONCE);
+            toClient.flush();
+            System.out.println("Encrypted nonce sent to client. Waiting for client's reply...");
+
+            int serverAccept = fromClient.readInt();
+			if (serverAccept == 88) {
+				System.out.println("Client accepted connection!");
+			} else if (serverAccept == 55) {
+				System.out.println("Client did not accept connection...");
+				endConnection();
+			}
+		}
+		catch (Exception exception) {
+			System.out.println("Client did not think that server is live...");
+            endConnection();
+		}
     }
 
     // read the private key
