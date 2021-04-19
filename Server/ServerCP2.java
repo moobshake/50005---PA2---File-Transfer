@@ -18,6 +18,7 @@ import java.util.Random;
 import java.util.Scanner;
 
 import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -35,6 +36,7 @@ public class ServerCP1 {
     static Cipher mainCipherEncrypt;
 	static Cipher mainCipherDecrypt;
 	static SecretKey sessionKey;
+    private static String password = "password";
 
     public static void main(String[] args) {
 
@@ -334,6 +336,7 @@ public class ServerCP1 {
             int serverAccept = fromClient.readInt();
 			if (serverAccept == 88) {
 				System.out.println("Client accepted connection!");
+                checkPassword();
 			} else if (serverAccept == 55) {
 				System.out.println("Client did not accept connection...");
 				endConnection();
@@ -344,6 +347,57 @@ public class ServerCP1 {
             endConnection();
 		}
     }
+
+    // sending password to authenticate client
+	public static void checkPassword() {
+		try {
+			System.out.println("\nGenerating password session key...");
+			// Generate session key
+			KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+			keyGenerator.init(128);
+			SecretKey passwordKey = keyGenerator.generateKey();
+			Cipher oneTimeCipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+			oneTimeCipher.init(Cipher.DECRYPT_MODE, passwordKey);
+			System.out.println("Password Session key generated.");
+
+			// send encrypted session key with public key
+			System.out.println("Sending encrypted password session key with private key...");
+			Cipher enCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			enCipher.init(Cipher.ENCRYPT_MODE, privateKey);
+
+			byte[] encryptPasswordKey = enCipher.doFinal(passwordKey.getEncoded());
+            toClient.writeInt(encryptPasswordKey.length);
+            toClient.write(encryptPasswordKey);
+            toClient.flush();
+            System.out.println("Encrypted password session key sent. Waiting for password to be sent over...\n");
+
+            int numBytes = fromClient.readInt();
+            System.out.println("Password recieved. Checking...");
+            byte[] clientPassword = new byte[numBytes];
+            // Must use read fully!
+            // See:
+            // https://stackoverflow.com/questions/25897627/datainputstream-read-vs-datainputstream-readfully
+            fromClient.readFully(clientPassword, 0, numBytes);
+
+            byte[] decryptedData = oneTimeCipher.doFinal(clientPassword);
+            String clientPasswordDecryted = new String(decryptedData);
+
+            System.out.println("Client entered: " + clientPasswordDecryted);
+
+            if (clientPasswordDecryted.equals(password)) {
+                System.out.println("Client entered correct password. Is authenticated!\n");
+                toClient.writeInt(111);
+            } else {
+                toClient.writeInt(222);
+                System.out.println("Client entered incorrect password. Gonna yeet before client sends anything else...");
+                endConnection();
+            }
+		}
+		catch (Exception exception) {
+			System.out.println("\nPassword is wrong! Client have no access...\n");
+			endConnection();
+		}
+	}
 
     // read the private key
     public static PrivateKey getPrivateKey(String fileName) {

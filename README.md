@@ -14,6 +14,8 @@ NOTE - We used java version 15.0.2
 >- 33 : File transfer   successful
 >- 55 : Server rejected client connection
 >- 88 : Server accepted client connection
+>- 111 : Password is correct
+>- 222 : Password is wrong
 ### Server
 >- -44: Authentication
 >- 0 : Get FileName  

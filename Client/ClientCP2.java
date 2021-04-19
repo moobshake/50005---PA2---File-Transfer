@@ -23,6 +23,7 @@ import java.util.Scanner;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 
 public class ClientCP1 {
 
@@ -176,8 +177,10 @@ public class ClientCP1 {
 			toServer.writeInt(44);
 			clientSocket.close();
 			System.out.println("Connection closed.");
+			System.exit(0);
 		} catch (Exception exception) {
 			System.out.println("Connection already closed.");
+			System.exit(0);
 		}
 	}
 
@@ -368,6 +371,7 @@ public class ClientCP1 {
 			if (decryptedNONCEInt == nonce) {
 				toServer.writeInt(88);
                 System.out.println("Nonce matches. Server is live.");
+				sendPassword();
             } else {
                 toServer.writeInt(55);
                 System.out.println("Nonce doesn't match. Server is not live.");
@@ -379,6 +383,52 @@ public class ClientCP1 {
 			System.out.println("Server is not live...");
 			endConnection();
 		}
+	}
+
+	// sending password to authenticate client
+	public static void sendPassword() {
+		try {
+            // recieve encrypted session key
+            int encryptedSessionKeyLength = fromServer.readInt();
+            byte[] encryptedSessionKey = new byte[encryptedSessionKeyLength];
+            fromServer.readFully(encryptedSessionKey, 0, encryptedSessionKeyLength);
+            System.out.println("\nRecieved encrypted password session key.");
+
+            // decrypt session key
+            System.out.println("Decrypting to get password session key with public key...");
+            Cipher deCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            deCipher.init(Cipher.DECRYPT_MODE, publicKey);
+            byte[] decryptedSessionKey = deCipher.doFinal(encryptedSessionKey);
+            SecretKey passwordSessionKey = new SecretKeySpec(decryptedSessionKey, 0, decryptedSessionKey.length, "AES");
+            System.out.println("Password Session key decrypted. Using password session key to encrypt password...");
+
+			System.out.print("\nPlease enter password to have access to the server: ");
+			String password = scanner.nextLine();
+
+			Cipher passwordCipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+			passwordCipher.init(Cipher.ENCRYPT_MODE, passwordSessionKey);
+
+			byte[] encryptedFileName = passwordCipher.doFinal(password.getBytes());
+			
+			toServer.writeInt(encryptedFileName.length);
+			toServer.write(encryptedFileName);
+			toServer.flush();
+
+			System.out.println("\nPassword sent to sever. Waiting for sever to authenticate...");
+
+			int serverAccept = fromServer.readInt();
+			if (serverAccept == 111) {
+				System.out.println("Server accepted password. Can begin sending data!");
+			} else if (serverAccept == 222) {
+				System.out.println("Server did not accept connection... WRONG PASSWORD...");
+				endConnection();
+			}
+
+        }
+        catch (Exception exception) {
+            System.out.println("Something wrong when recieving session key...");
+            endConnection();
+        }
 	}
 
 	// get address. will default to 'localhost' if nothing is entered
