@@ -36,7 +36,7 @@ public class ServerCP1 {
     static Cipher mainCipherEncrypt;
 	static Cipher mainCipherDecrypt;
 	static SecretKey sessionKey;
-    private static String password = "password";
+    private static String password = "csebestmod";
 
     public static void main(String[] args) {
 
@@ -374,9 +374,6 @@ public class ServerCP1 {
             int numBytes = fromClient.readInt();
             System.out.println("Password recieved. Checking...");
             byte[] clientPassword = new byte[numBytes];
-            // Must use read fully!
-            // See:
-            // https://stackoverflow.com/questions/25897627/datainputstream-read-vs-datainputstream-readfully
             fromClient.readFully(clientPassword, 0, numBytes);
 
             byte[] decryptedData = oneTimeCipher.doFinal(clientPassword);

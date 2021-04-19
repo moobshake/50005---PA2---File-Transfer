@@ -408,10 +408,10 @@ public class ClientCP1 {
 			Cipher passwordCipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
 			passwordCipher.init(Cipher.ENCRYPT_MODE, passwordSessionKey);
 
-			byte[] encryptedFileName = passwordCipher.doFinal(password.getBytes());
+			byte[] encryptedPassword = passwordCipher.doFinal(password.getBytes());
 			
-			toServer.writeInt(encryptedFileName.length);
-			toServer.write(encryptedFileName);
+			toServer.writeInt(encryptedPassword.length);
+			toServer.write(encryptedPassword);
 			toServer.flush();
 
 			System.out.println("\nPassword sent to sever. Waiting for sever to authenticate...");

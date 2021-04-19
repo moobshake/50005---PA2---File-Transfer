@@ -32,7 +32,8 @@ public class ClientCP1 {
 	static BufferedInputStream bufferedFileInputStream = null;
 	static String signedCertificateString = "";
 	static PublicKey publicKey;
-	static Cipher mainCipher;
+	static Cipher mainCipherEN;
+	static Cipher mainCipherDE;
 
 	public static void main(String[] args) {
 
@@ -153,7 +154,7 @@ public class ClientCP1 {
 	public static byte[] encryptData(byte[] data) {
 		try {
 			System.out.println("Encrypting data to be sent...");
-			byte[] encryptedData = mainCipher.doFinal(data);
+			byte[] encryptedData = mainCipherEN.doFinal(data);
 			System.out.println("Encrypted data. Sending...");
 			return encryptedData;
 		} catch (Exception exception) {
@@ -237,12 +238,12 @@ public class ClientCP1 {
 			signedCert.verify(caKey);
 
 			publicKey = signedCert.getPublicKey();
-			mainCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			mainCipher.init(Cipher.ENCRYPT_MODE, publicKey);
+			mainCipherEN = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			mainCipherEN.init(Cipher.ENCRYPT_MODE, publicKey);
+			mainCipherDE = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			mainCipherDE.init(Cipher.DECRYPT_MODE, publicKey);
 
-			Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			cipher.init(Cipher.DECRYPT_MODE, publicKey);
-			byte[] decryptedNONCE = cipher.doFinal(encryptedNonce);
+			byte[] decryptedNONCE = mainCipherDE.doFinal(encryptedNonce);
 			int decryptedNONCEInt = ByteBuffer.wrap(decryptedNONCE).getInt();
 
 			System.out.println("Decrypted NONCE is: " + decryptedNONCEInt);
@@ -250,9 +251,7 @@ public class ClientCP1 {
 			// encrypt nonce with public key top send back
 			System.out.println("Encrypting NONCE with public key to send back to server...");
 			byte[] encryptedNoncePublic = ByteBuffer.allocate(4).putInt(decryptedNONCEInt).array();
-			Cipher enCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			enCipher.init(Cipher.ENCRYPT_MODE, publicKey);
-			byte[] encryptedNoncePublicSending = enCipher.doFinal(encryptedNoncePublic);
+			byte[] encryptedNoncePublicSending = mainCipherEN.doFinal(encryptedNoncePublic);
 			System.out.println("Nonce encrypted and sending back to server...");
 
 			// send encrypted nonce
@@ -263,7 +262,8 @@ public class ClientCP1 {
 			
 			int serverAccept = fromServer.readInt();
 			if (serverAccept == 88) {
-				System.out.println("Server accepted connection!");
+				System.out.println("Server accepted connection! Checking if server is live...\n");
+				checkServerLive();
 			} else if (serverAccept == 55) {
 				System.out.println("Server did not accept connection...");
 				endConnection();
@@ -274,6 +274,80 @@ public class ClientCP1 {
 			System.out.println("Something went wrong with authenticating the server... Prolly something wrong with certificate.");
 			endConnection();
 		}
+	}
+
+	// check whether server is live
+	public static void checkServerLive() {
+		try {
+			// random number generator for
+			Random random = new Random(System.currentTimeMillis());
+			int nonce = random.nextInt(100000);
+
+            System.out.println("Generated NONCE value of: " + nonce + ". Encrypting this nonce now...");
+
+			// encrypt nonce
+            byte[] nonceByte = ByteBuffer.allocate(4).putInt(nonce).array();
+            byte[] encryptedNONCE = mainCipherEN.doFinal(nonceByte);
+            System.out.println("Nonce encrypted and sending to client...");
+
+			// send encrypted nonce
+            toServer.writeInt(encryptedNONCE.length);
+            toServer.write(encryptedNONCE);
+            toServer.flush();
+            System.out.println("Encrypted nonce sent to server. Waiting for server to respond...");
+
+			// recieve encrypted nonce
+			int numBytes = fromServer.readInt();
+			byte[] encryptedNonce2 = new byte[numBytes];
+			fromServer.readFully(encryptedNonce2, 0, numBytes);
+			System.out.println("Recieved encrypted Nonce Value. Decrypting and checking....");
+
+			byte[] decryptedNONCE = mainCipherDE.doFinal(encryptedNonce2);
+			int verifyNonce = ByteBuffer.wrap(decryptedNONCE).getInt();
+            System.out.println("Decrypted NONCE is: " + verifyNonce);
+
+            if (verifyNonce == nonce) {
+                toServer.writeInt(88);
+                System.out.println("Nonce matches. Server is live.\n");
+				sendPassword();
+            } else {
+                toServer.writeInt(55);
+                System.out.println("Nonce doesn't match. Server is not live.");
+                endConnection();
+            }
+
+        }
+        catch (Exception exception) {
+            System.out.println("Something went wrong with sending nonce to server");
+        }
+	}
+
+	// send password to server to authenticate self
+	public static void sendPassword() {
+		try {
+			System.out.print("\nPlease enter password to have access to the server: ");
+			String password = scanner.nextLine();
+
+			byte[] encryptedPassword = mainCipherEN.doFinal(password.getBytes());
+			
+			toServer.writeInt(encryptedPassword.length);
+			toServer.write(encryptedPassword);
+			toServer.flush();
+
+			System.out.println("\nPassword sent to sever. Waiting for sever to authenticate...");
+
+			int serverAccept = fromServer.readInt();
+			if (serverAccept == 111) {
+				System.out.println("Server accepted password. Can begin sending data!");
+			} else if (serverAccept == 222) {
+				System.out.println("Server did not accept connection... WRONG PASSWORD...");
+				endConnection();
+			}
+        }
+        catch (Exception exception) {
+            System.out.println("Something wrong when recieving session key...");
+            endConnection();
+        }
 	}
 
 	// get address. will default to 'localhost' if nothing is entered

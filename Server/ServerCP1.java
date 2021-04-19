@@ -29,8 +29,10 @@ public class ServerCP1 {
     static BufferedOutputStream bufferedFileOutputStream = null;
     static PrivateKey privateKey = getPrivateKey("private_key.der");
     static PublicKey publicKey = getPublicKey("public_key.der");
-    static Cipher mainCipher;
+    static Cipher mainCipherEN;
+    static Cipher mainCipherDE;
     static int packetCount = 0;
+    private static String password = "csebestmod";
 
     public static void main(String[] args) {
 
@@ -135,7 +137,7 @@ public class ServerCP1 {
         try {
 			System.out.println("Decrypting data received...");
             System.out.println("Encrypted data of length: " + encryptedData.length);
-            byte[] decryptedData = mainCipher.doFinal(encryptedData);
+            byte[] decryptedData = mainCipherDE.doFinal(encryptedData);
             System.out.println("Successfully decrypted data.");
             System.out.println("Decrypted data of length: " + decryptedData.length);
 			return decryptedData;
@@ -144,7 +146,6 @@ public class ServerCP1 {
 			return null;
 		}
     }
-
 
     // end connection
     public static void endConnection() {
@@ -194,11 +195,16 @@ public class ServerCP1 {
 
             System.out.println("Generated NONCE value of: " + nonce + ". Encrypting this nonce now...");
 
+            mainCipherDE = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			mainCipherDE.init(Cipher.DECRYPT_MODE, privateKey);
+
+            mainCipherEN = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			mainCipherEN.init(Cipher.ENCRYPT_MODE, privateKey);
+
+
             // encrypt nonce
             byte[] nonceByte = ByteBuffer.allocate(4).putInt(nonce).array();
-            Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-            cipher.init(Cipher.ENCRYPT_MODE, privateKey);
-            byte[] encryptedNONCE = cipher.doFinal(nonceByte);
+            byte[] encryptedNONCE = mainCipherEN.doFinal(nonceByte);
             System.out.println("Nonce encrypted and sending to client...");
 
             // send encrypted nonce
@@ -235,26 +241,92 @@ public class ServerCP1 {
             fromClient.readFully(encryptedNoncePublic, 0, numBytesPublic);
             System.out.println("Recieved encrypted Nonce Value. Decrypting with private key and checking...");
 
-            mainCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			mainCipher.init(Cipher.DECRYPT_MODE, privateKey);
-
-            Cipher deCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			deCipher.init(Cipher.DECRYPT_MODE, privateKey);
-			byte[] decryptedNONCE = deCipher.doFinal(encryptedNoncePublic);
+			byte[] decryptedNONCE = mainCipherDE.doFinal(encryptedNoncePublic);
 			int verifyNonce = ByteBuffer.wrap(decryptedNONCE).getInt();
             System.out.println("Decrypted NONCE is: " + verifyNonce);
 
             if (verifyNonce == nonce) {
                 toClient.writeInt(88);
-                System.out.println("Nonce matches. Client is authenticated.");
+                System.out.println("Nonce matches. Client is live.\n");
+                tellClientLive();
             } else {
                 toClient.writeInt(55);
-                System.out.println("Nonce doesn't match. Client is not authenticated.");
+                System.out.println("Nonce doesn't match. Client is not live.");
                 endConnection();
             }
 
         } catch (Exception exception) {
             System.out.println("Something wrong with authentication...");
+        }
+    }
+
+    // to tell the client that server is live
+	public static void tellClientLive() {
+        try {
+            // recieve encrypted nonce
+			int numBytes = fromClient.readInt();
+			byte[] encryptedNonce = new byte[numBytes];
+			fromClient.readFully(encryptedNonce, 0, numBytes);
+			System.out.println("Recieved encrypted Nonce Value. Decrypting the nonce...");
+
+            byte[] decryptedNONCE = mainCipherDE.doFinal(encryptedNonce);
+			int decryptedNONCEInt = ByteBuffer.wrap(decryptedNONCE).getInt();
+
+			System.out.println("Decrypted NONCE is: " + decryptedNONCEInt);
+
+            // encrypt nonce with public key top send back
+			System.out.println("Encrypting NONCE with private key to send back to client...");
+			byte[] encryptedNoncePrivate = ByteBuffer.allocate(4).putInt(decryptedNONCEInt).array();
+			byte[] encryptedNoncePrivateSending = mainCipherEN.doFinal(encryptedNoncePrivate);
+			System.out.println("Nonce encrypted and sending back to client...");
+
+            // send encrypted nonce
+            toClient.writeInt(encryptedNoncePrivateSending.length);
+            toClient.write(encryptedNoncePrivateSending);
+            toClient.flush();
+            System.out.println("Encrypted nonce with private key sent to client. Waiting for confirmation from client...");
+
+            int clientAccept = fromClient.readInt();
+			if (clientAccept == 88) {
+				System.out.println("Client accepted connection!\n");
+                checkPassword();
+			} else if (clientAccept == 55) {
+				System.out.println("Client did not accept connection...");
+				endConnection();
+			}
+        }
+        catch (Exception exception) {
+            System.out.println("Something went wrong decrypting nonce from client...");
+        }
+ 	}
+
+    // tell client to send password to authenticate if user is real
+    public static void checkPassword() {
+        try {
+            System.out.println("Waiting for client to send password over...\n");
+
+            int numBytes = fromClient.readInt();
+            System.out.println("Password recieved. Checking...");
+            byte[] clientPassword = new byte[numBytes];
+            fromClient.readFully(clientPassword, 0, numBytes);
+
+            byte[] decryptedData = mainCipherDE.doFinal(clientPassword);
+            String clientPasswordDecryted = new String(decryptedData);
+
+            System.out.println("Client entered: " + clientPasswordDecryted);
+
+            if (clientPasswordDecryted.equals(password)) {
+                System.out.println("Client entered correct password. Is authenticated!\n");
+                toClient.writeInt(111);
+            } else {
+                toClient.writeInt(222);
+                System.out.println("Client entered incorrect password. Gonna yeet before client sends anything else...");
+                endConnection();
+            }
+		}
+		catch (Exception exception) {
+			System.out.println("\nPassword is wrong! Client have no access...\n");
+			endConnection();
         }
     }
 
