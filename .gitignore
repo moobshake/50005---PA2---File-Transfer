@@ -10,4 +10,7 @@ OriginalCode
 **/slick
 **/*.jpeg
 !Report.pdf
-!Diagrams
+!Diagrams/cp2.png
+!Diagrams/cp1.jpg
+!Diagrams/graph.png
+!Diagrams/min.png
