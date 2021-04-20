@@ -2,6 +2,7 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.net.ServerSocket;
@@ -14,6 +15,8 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Random;
 import java.util.Scanner;
 
@@ -34,8 +37,8 @@ public class ServerCP2 {
     static PublicKey publicKey = getPublicKey("public_key.der");
     static int packetCount = 0;
     static Cipher mainCipherEncrypt;
-	static Cipher mainCipherDecrypt;
-	static SecretKey sessionKey;
+    static Cipher mainCipherDecrypt;
+    static SecretKey sessionKey;
     private static String password = "csebestmod";
 
     public static void main(String[] args) {
@@ -71,6 +74,15 @@ public class ServerCP2 {
             } else if (packetType == 44) {
                 System.out.println("Client ended connection...");
                 endConnection();
+            } else if (packetType == 1002) {
+                System.out.println("\nClient wants to get the filenames in server");
+                sendFileNamesInServer();
+            } else if (packetType == 1003) {
+                System.out.println("\nClient wants to download file from server");
+                downloadFile();
+            } else if (packetType == 1004) {
+                System.out.println("\nClient wants to delete file from server");
+                deleteFile();
             } else {
                 System.out.println("Unknown packetType...");
             }
@@ -78,6 +90,168 @@ public class ServerCP2 {
         } catch (Exception exception) {
             endConnection();
             System.out.println("Something went wrong... Client disconnected...\n\n");
+        }
+    }
+
+    // send to client the filenames that are in server
+    public static void sendFileNamesInServer() {
+        try {
+            sessionKeyRec();
+
+            File folder = new File(".");
+            File[] listOfFiles = folder.listFiles();
+
+            ArrayList<String> arrayListOfFileName = new ArrayList<String>();
+
+            for (int i = 0; i < listOfFiles.length; i++) {
+                if (listOfFiles[i].isFile()) {
+                    if (!listOfFiles[i].getName().equals("ServerCP1.java")
+                            && !listOfFiles[i].getName().equals("ServerCP2.java")
+                            && !listOfFiles[i].getName().equals("public_key.der")
+                            && !listOfFiles[i].getName().equals("private_key.der")
+                            && !listOfFiles[i].getName().equals("certificate_1004152.crt")) {
+                        arrayListOfFileName.add(listOfFiles[i].getName());
+                    }
+                }
+            }
+
+            if (arrayListOfFileName.size() == 0) {
+                System.out.println("There are no files currently in server that can be sent...");
+                toClient.writeInt(1010);
+            } else {
+                System.out.println("There are files currently in server that can be sent...");
+                toClient.writeInt(1011);
+
+                for (String fileString : arrayListOfFileName) {
+                    System.out.println("Sending filename '" + fileString + "'...");
+
+                    toClient.writeInt(1009);
+
+                    System.out.println("Filename bytes: " + fileString.getBytes().length);
+                    System.out.println("Encrypting data to be sent...");
+                    byte[] encryptedFileName = mainCipherEncrypt.doFinal(fileString.getBytes());
+                    System.out.println("Encrypted data. Sending...");
+                    toClient.writeInt(encryptedFileName.length);
+                    toClient.write(encryptedFileName);
+                    toClient.flush();
+                }
+
+                System.out.println("Filenames sent...");
+                toClient.writeInt(1008);
+            }
+        } catch (Exception exception) {
+            System.out.println("Something went wrong getting filenames from server...");
+        }
+    }
+
+    // client wants to download file
+    public static void downloadFile() {
+        try {
+            sessionKeyRec();
+
+            System.out.println("Getting file name...");
+
+            int numBytes = fromClient.readInt();
+            byte[] fileName = new byte[numBytes];
+            fromClient.readFully(fileName, 0, numBytes);
+
+            byte[] decryptedData = decryptData(fileName);
+
+            String fileNameDecrypted = new String(decryptedData);
+
+            System.out.println("File name is: " + new String(decryptedData, 0, decryptedData.length) + " with length: "
+                    + decryptedData.length);
+
+            File file = new File(fileNameDecrypted);
+            if (file.exists()) {
+                System.out.println("File exist in server. Sending...");
+                toClient.writeInt(1013);
+                // Open the file
+                FileInputStream fileInputStream = new FileInputStream(fileNameDecrypted);
+                BufferedInputStream bufferedFileInputStream = new BufferedInputStream(fileInputStream);
+                int packetCount = 0;
+                byte[] fromFileBuffer = new byte[245];
+
+                // Send the file
+                for (boolean fileEnded = false; !fileEnded;) {
+                    numBytes = bufferedFileInputStream.read(fromFileBuffer);
+                    fileEnded = numBytes < 245;
+                    System.out.println("\nBytes being written BEFORE encryption: " + numBytes);
+
+                    // if last packet means there will be less than 245 bytes thus need to
+                    // limit the number of bytes.
+                    byte[] encryptedData;
+                    if (fileEnded) {
+                        byte[] lastPacket = Arrays.copyOf(fromFileBuffer, numBytes);
+                        encryptedData = mainCipherEncrypt.doFinal(lastPacket);
+                    } else {
+                        encryptedData = mainCipherEncrypt.doFinal(fromFileBuffer);
+                    }
+
+                    System.out.println("Bytes being written AFTER encryption: " + encryptedData.length);
+                    packetCount++;
+                    System.out.println("This is packetCount: " + packetCount);
+
+                    toClient.writeInt(1);
+                    toClient.writeInt(encryptedData.length);
+                    toClient.write(encryptedData, 0, encryptedData.length);
+                    toClient.flush();
+                }
+
+                toClient.writeInt(999);
+                fileInputStream.close();
+                bufferedFileInputStream.close();
+                System.out.println("Waiting for client to confirm receipt of file...");
+                int confirmation = fromClient.readInt();
+
+                if (confirmation == 998) {
+                    System.out.println("Client succesfully received file.");
+                } else {
+                    System.out.println("Client says files not receieved properly.");
+                }
+
+            } else {
+                System.out.println("File does not exist in server... Nothing was deleted.");
+                toClient.writeInt(1012);
+            }
+
+        } catch (Exception exception) {
+            System.out.println("Something went wrong deleting file... Ending connection with client...");
+            endConnection();
+        }
+    }
+
+    // client wants to delete file
+    public static void deleteFile() {
+        try {
+            sessionKeyRec();
+
+            System.out.println("Getting file name...");
+
+            int numBytes = fromClient.readInt();
+            byte[] fileName = new byte[numBytes];
+            fromClient.readFully(fileName, 0, numBytes);
+
+            byte[] decryptedData = decryptData(fileName);
+
+            String fileNameDecrypted = new String(decryptedData);
+
+            System.out.println("File name is: " + new String(decryptedData, 0, decryptedData.length) + " with length: "
+                    + decryptedData.length);
+
+            File file = new File(fileNameDecrypted);
+            if (file.exists()) {
+                System.out.println("File exist in server. Deleting...");
+                file.delete();
+                toClient.writeInt(1015);
+            } else {
+                System.out.println("File does not exist in server... Nothing was deleted.");
+                toClient.writeInt(1014);
+            }
+
+        } catch (Exception exception) {
+            System.out.println("Something went wrong deleting file... Ending connection with client...");
+            endConnection();
         }
     }
 
@@ -124,7 +298,8 @@ public class ServerCP2 {
 
             byte[] decryptedData = decryptData(fileName);
 
-            System.out.println("File name is: " + new String(decryptedData, 0, decryptedData.length) + " with length: " + decryptedData.length);
+            System.out.println("File name is: " + new String(decryptedData, 0, decryptedData.length) + " with length: "
+                    + decryptedData.length);
 
             fileOutputStream = new FileOutputStream("recv_" + new String(decryptedData, 0, decryptedData.length));
             bufferedFileOutputStream = new BufferedOutputStream(fileOutputStream);
@@ -139,16 +314,16 @@ public class ServerCP2 {
     // decrypt data
     public static byte[] decryptData(byte[] encryptedData) {
         try {
-			System.out.println("Decrypting data received...");
+            System.out.println("Decrypting data received...");
             System.out.println("Encrypted data of length: " + encryptedData.length);
             byte[] decryptedData = mainCipherDecrypt.doFinal(encryptedData);
             System.out.println("Successfully decrypted data.");
             System.out.println("Decrypted data of length: " + decryptedData.length);
-			return decryptedData;
-		} catch (Exception exception) {
-			System.out.println("Something went wrong with the encryption...");
-			return null;
-		}
+            return decryptedData;
+        } catch (Exception exception) {
+            System.out.println("Something went wrong with the encryption...");
+            return null;
+        }
     }
 
     // end connection
@@ -188,7 +363,7 @@ public class ServerCP2 {
         }
     }
 
-    // recieve session key from client 
+    // recieve session key from client
     public static void sessionKeyRec() {
         try {
             // recieve encrypted session key
@@ -204,12 +379,11 @@ public class ServerCP2 {
             byte[] decryptedSessionKey = deCipher.doFinal(encryptedSessionKey);
             sessionKey = new SecretKeySpec(decryptedSessionKey, 0, decryptedSessionKey.length, "AES");
             mainCipherEncrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
-			mainCipherEncrypt.init(Cipher.ENCRYPT_MODE, sessionKey);
-			mainCipherDecrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
-			mainCipherDecrypt.init(Cipher.DECRYPT_MODE, sessionKey);
+            mainCipherEncrypt.init(Cipher.ENCRYPT_MODE, sessionKey);
+            mainCipherDecrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            mainCipherDecrypt.init(Cipher.DECRYPT_MODE, sessionKey);
             System.out.println("Session key decrypted. Using session key to decrypt data...");
-        }
-        catch (Exception exception) {
+        } catch (Exception exception) {
             System.out.println("Something wrong when recieving session key...");
             endConnection();
         }
@@ -221,8 +395,8 @@ public class ServerCP2 {
             System.out.println("Starting authentication with client...");
 
             // random number generator for
-			Random random = new Random(System.currentTimeMillis());
-			int nonce = random.nextInt(100000);
+            Random random = new Random(System.currentTimeMillis());
+            int nonce = random.nextInt(100000);
 
             System.out.println("Generated NONCE value of: " + nonce + ". Encrypting this nonce now...");
 
@@ -243,8 +417,8 @@ public class ServerCP2 {
 
             System.out.println("Sending signed certificate filename...");
             toClient.writeInt(certificateString.getBytes().length);
-			toClient.write(certificateString.getBytes());
-			toClient.flush();
+            toClient.write(certificateString.getBytes());
+            toClient.flush();
             System.out.println("Signed certificate filename sent... Sending certificate file now...");
             FileInputStream fileInputStream = new FileInputStream(certificateString);
             BufferedInputStream bufferedFileInputStream = new BufferedInputStream(fileInputStream);
@@ -280,13 +454,13 @@ public class ServerCP2 {
             byte[] decryptedSessionKey = deCipher.doFinal(encryptedSessionKey);
             sessionKey = new SecretKeySpec(decryptedSessionKey, 0, decryptedSessionKey.length, "AES");
             mainCipherEncrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
-			mainCipherEncrypt.init(Cipher.ENCRYPT_MODE, sessionKey);
-			mainCipherDecrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
-			mainCipherDecrypt.init(Cipher.DECRYPT_MODE, sessionKey);
+            mainCipherEncrypt.init(Cipher.ENCRYPT_MODE, sessionKey);
+            mainCipherDecrypt = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            mainCipherDecrypt.init(Cipher.DECRYPT_MODE, sessionKey);
             System.out.println("Session key decrypted. Decrypting nonce with session key...");
-            
-			byte[] decryptedNONCE = mainCipherDecrypt.doFinal(encryptedNoncePublic);
-			int verifyNonce = ByteBuffer.wrap(decryptedNONCE).getInt();
+
+            byte[] decryptedNONCE = mainCipherDecrypt.doFinal(encryptedNoncePublic);
+            int verifyNonce = ByteBuffer.wrap(decryptedNONCE).getInt();
             System.out.println("Decrypted NONCE is: " + verifyNonce);
 
             if (verifyNonce == nonce) {
@@ -310,15 +484,15 @@ public class ServerCP2 {
             System.out.println("\nClient going to check if Sever is live...");
             sessionKeyRec();
             // recieve encrypted nonce
-			int numBytes = fromClient.readInt();
-			byte[] encryptedNonce = new byte[numBytes];
-			fromClient.readFully(encryptedNonce, 0, numBytes);
-			System.out.println("Recieved encrypted Nonce Value. Using session key to decrypt...");
-            
+            int numBytes = fromClient.readInt();
+            byte[] encryptedNonce = new byte[numBytes];
+            fromClient.readFully(encryptedNonce, 0, numBytes);
+            System.out.println("Recieved encrypted Nonce Value. Using session key to decrypt...");
+
             byte[] decryptedNONCE = mainCipherDecrypt.doFinal(encryptedNonce);
             int decryptedNONCEInt = ByteBuffer.wrap(decryptedNONCE).getInt();
 
-			System.out.println("Decrypted NONCE is: " + decryptedNONCEInt + ". Encrypting this with private key...");
+            System.out.println("Decrypted NONCE is: " + decryptedNONCEInt + ". Encrypting this with private key...");
 
             // encrypt nonce
             byte[] nonceByte = ByteBuffer.allocate(4).putInt(decryptedNONCEInt).array();
@@ -334,38 +508,37 @@ public class ServerCP2 {
             System.out.println("Encrypted nonce sent to client. Waiting for client's reply...");
 
             int serverAccept = fromClient.readInt();
-			if (serverAccept == 88) {
-				System.out.println("Client accepted connection!");
-                checkPassword();
-			} else if (serverAccept == 55) {
-				System.out.println("Client did not accept connection...");
-				endConnection();
-			}
-		}
-		catch (Exception exception) {
-			System.out.println("Client did not think that server is live...");
+            if (serverAccept == 88) {
+                System.out.println("Client accepted connection!");
+                // checkPassword();
+            } else if (serverAccept == 55) {
+                System.out.println("Client did not accept connection...");
+                endConnection();
+            }
+        } catch (Exception exception) {
+            System.out.println("Client did not think that server is live...");
             endConnection();
-		}
+        }
     }
 
     // sending password to authenticate client
-	public static void checkPassword() {
-		try {
-			System.out.println("\nGenerating password session key...");
-			// Generate session key
-			KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
-			keyGenerator.init(128);
-			SecretKey passwordKey = keyGenerator.generateKey();
-			Cipher oneTimeCipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
-			oneTimeCipher.init(Cipher.DECRYPT_MODE, passwordKey);
-			System.out.println("Password Session key generated.");
+    public static void checkPassword() {
+        try {
+            System.out.println("\nGenerating password session key...");
+            // Generate session key
+            KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+            keyGenerator.init(128);
+            SecretKey passwordKey = keyGenerator.generateKey();
+            Cipher oneTimeCipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            oneTimeCipher.init(Cipher.DECRYPT_MODE, passwordKey);
+            System.out.println("Password Session key generated.");
 
-			// send encrypted session key with public key
-			System.out.println("Sending encrypted password session key with private key...");
-			Cipher enCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			enCipher.init(Cipher.ENCRYPT_MODE, privateKey);
+            // send encrypted session key with public key
+            System.out.println("Sending encrypted password session key with private key...");
+            Cipher enCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            enCipher.init(Cipher.ENCRYPT_MODE, privateKey);
 
-			byte[] encryptPasswordKey = enCipher.doFinal(passwordKey.getEncoded());
+            byte[] encryptPasswordKey = enCipher.doFinal(passwordKey.getEncoded());
             toClient.writeInt(encryptPasswordKey.length);
             toClient.write(encryptPasswordKey);
             toClient.flush();
@@ -375,7 +548,7 @@ public class ServerCP2 {
             byte[] clientPassword = new byte[numBytes];
             fromClient.readFully(clientPassword, 0, numBytes);
             System.out.println("Encrypted password recieved. Checking...");
-            
+
             System.out.println("Decrypting password with password session key... ");
             byte[] decryptedData = oneTimeCipher.doFinal(clientPassword);
             String clientPasswordDecryted = new String(decryptedData);
@@ -386,15 +559,15 @@ public class ServerCP2 {
                 toClient.writeInt(111);
             } else {
                 toClient.writeInt(222);
-                System.out.println("Client entered incorrect password. Gonna yeet before client sends anything else...");
+                System.out
+                        .println("Client entered incorrect password. Gonna yeet before client sends anything else...");
                 endConnection();
             }
-		}
-		catch (Exception exception) {
-			System.out.println("\nPassword is wrong! Client have no access...\n");
-			endConnection();
-		}
-	}
+        } catch (Exception exception) {
+            System.out.println("\nPassword is wrong! Client have no access...\n");
+            endConnection();
+        }
+    }
 
     // read the private key
     public static PrivateKey getPrivateKey(String fileName) {
