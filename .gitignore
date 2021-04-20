@@ -10,3 +10,4 @@ OriginalCode
 **/slick
 **/*.jpeg
 !Report.pdf
+!Diagrams
