@@ -103,7 +103,7 @@ public class ClientCP2 {
 				endConnection();
 			} else {
 				getInput = true;
-				System.out.println("Please input an integer from 1-4. Please try again...");
+				System.out.println("Please input an integer from 1-5. Please try again...");
 			}
 		}
 	}
@@ -563,7 +563,7 @@ public class ClientCP2 {
 			if (decryptedNONCEInt == nonce) {
 				toServer.writeInt(88);
 				System.out.println("Nonce matches. Server is live.");
-				// sendPassword();
+				sendPassword();
 			} else {
 				toServer.writeInt(55);
 				System.out.println("Nonce doesn't match. Server is not live.");

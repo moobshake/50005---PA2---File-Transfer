@@ -1,2 +1,12 @@
 OriginalCode
 **/*.txt
+**/*.mp3
+**/*.pdf
+**/echo
+**/*.jpg
+**/*.png
+**/*.wav
+**/*.bin
+**/slick
+**/*.jpeg
+!Report.pdf

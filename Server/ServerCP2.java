@@ -510,7 +510,7 @@ public class ServerCP2 {
             int serverAccept = fromClient.readInt();
             if (serverAccept == 88) {
                 System.out.println("Client accepted connection!");
-                // checkPassword();
+                checkPassword();
             } else if (serverAccept == 55) {
                 System.out.println("Client did not accept connection...");
                 endConnection();
