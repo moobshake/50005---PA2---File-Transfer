@@ -9,8 +9,9 @@ OriginalCode
 **/*.bin
 **/slick
 **/*.jpeg
+**/*.mp4
 !Report.pdf
 !Diagrams/cp2.png
-!Diagrams/cp1.jpg
+!Diagrams/cp1.png
 !Diagrams/graph.png
 !Diagrams/min.png

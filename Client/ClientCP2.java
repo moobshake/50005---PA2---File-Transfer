@@ -74,7 +74,7 @@ public class ClientCP2 {
 				type = Integer.parseInt(command);
 			} catch (Exception exception) {
 				type = 0;
-				System.out.println("You have entered an invalid input... Please input an integer from 1-4.");
+				System.out.println("You have entered an invalid input... Please input an integer from 1-5.");
 			}
 
 			if (type == 0) {
